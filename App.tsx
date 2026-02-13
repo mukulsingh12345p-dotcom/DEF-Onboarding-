@@ -86,19 +86,16 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [progress, setProgress] = useState<UserProgress[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Kept for background status, but won't block UI
 
   // --- Data Fetching ---
   const fetchData = async () => {
-      setLoading(true);
-      
       // Fetch Modules
-      const { data: mods, error: modError } = await supabase.from('modules').select('*');
-      if (modError) console.error("Error fetching modules:", modError);
+      const { data: mods } = await supabase.from('modules').select('*');
       if (mods) setModules(mods.map(m => ({...m, questions: m.questions || []})));
 
       // Fetch Users
-      const { data: usrs, error: usrError } = await supabase.from('users').select('*');
+      const { data: usrs } = await supabase.from('users').select('*');
       if (usrs) {
           const mappedUsers = usrs.map(u => ({
               ...u,
@@ -123,7 +120,7 @@ const App: React.FC = () => {
                       admin_scope: u.adminScope
                   });
               }
-              // Re-fetch
+              // Re-fetch (background)
               const { data: newUsrs } = await supabase.from('users').select('*');
               if (newUsrs) setUsers(newUsrs.map(u => ({...u, schoolId: u.school_id, joinedAt: u.joined_at, accountType: u.account_type, adminScope: u.admin_scope})));
           }
@@ -152,23 +149,27 @@ const App: React.FC = () => {
   // --- Actions ---
 
   const handleStaffLogin = async (loginId: string, pass: string, role: UserRole, school: string, type: 'NEW' | 'REFRESHER') => {
-    // Check against local state which is synced with DB
-    const user = users.find(u => 
-        (u.email.toLowerCase() === loginId.toLowerCase() || u.name.toLowerCase() === loginId.toLowerCase()) && 
-        u.password === pass && 
-        u.role === role && 
-        u.schoolId === school &&
-        u.accountType === type
-    );
+    // Query DB directly so login works even if background fetch isn't done
+    const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('password', pass)
+        .eq('role', role)
+        .eq('school_id', school)
+        .eq('account_type', type)
+        // Check if email OR name matches loginId (case-insensitive)
+        .or(`email.ilike.${loginId},name.ilike.${loginId}`);
+
+    const user = data?.[0]; // Get first match
 
     if (user) {
       setSession({
         email: user.email,
         name: user.name,
-        role: user.role,
-        schoolId: user.schoolId,
-        accountType: user.accountType,
-        adminScope: user.adminScope
+        role: user.role as UserRole,
+        schoolId: user.school_id,
+        accountType: user.account_type as 'NEW' | 'REFRESHER',
+        adminScope: user.admin_scope
       });
       setCurrentView('DASHBOARD');
     } else {
@@ -177,16 +178,23 @@ const App: React.FC = () => {
   };
 
   const handleAdminLogin = async (id: string, pass: string) => {
-      const user = users.find(u => (u.email === id || u.name === id) && u.password === pass);
+      // Query DB directly
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('password', pass)
+        .or(`email.ilike.${id},name.ilike.${id}`);
       
-      if (user && (user.role === UserRole.ADMIN || user.adminScope)) {
+      const user = data?.[0];
+
+      if (user && (user.role === UserRole.ADMIN || user.admin_scope)) {
           setSession({
             email: user.email,
             name: user.name,
-            role: user.role,
-            schoolId: user.schoolId,
-            accountType: user.accountType,
-            adminScope: user.adminScope
+            role: user.role as UserRole,
+            schoolId: user.school_id,
+            accountType: user.account_type,
+            adminScope: user.admin_scope
           });
           setCurrentView('DASHBOARD');
       } else {
@@ -231,16 +239,14 @@ const App: React.FC = () => {
           folder: mod.folder,
           video_url: mod.videoUrl,
           transcript: mod.transcript,
-          questions: mod.questions // This is the quiz array
+          questions: mod.questions
       });
 
       if (error) {
           console.error("Supabase Save Error:", error);
           alert("Error saving module to database: " + error.message);
-          // Rollback
           setModules(prev => prev.filter(m => m.id !== mod.id));
       } else {
-          // Success is silent for smoother UI, or managed by component
           console.log("Module saved successfully with quiz.");
       }
   };
@@ -304,14 +310,8 @@ const App: React.FC = () => {
 
   // --- Views ---
 
-  if (loading) {
-      return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500 gap-3">
-             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-             <div className="text-sm font-medium">Connecting to Darshan Database...</div>
-        </div>
-      );
-  }
+  // NOTE: Blocking loading screen removed to allow instant app start.
+  // Data fetches in background. Login checks DB directly.
 
   if (currentView === 'LANDING') {
       return <LandingPage onNavigate={setCurrentView} />;
