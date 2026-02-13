@@ -2,7 +2,26 @@
 import { GoogleGenAI } from "@google/genai";
 import { QuizQuestion } from "../types";
 
-const apiKey = process.env.API_KEY || ''; 
+// Safe access to process.env for browser environments to prevent crashes
+const getApiKey = () => {
+  try {
+    // Check if process is defined (Node.js/Build time)
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY;
+    }
+    // Fallback for Vite/Browser environments if relying on import.meta (optional, depending on build config)
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+    }
+  } catch (e) {
+    console.warn("Could not access environment variables");
+  }
+  return '';
+};
+
+const apiKey = getApiKey() || ''; 
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export const generateQuizFromTopic = async (topic: string, role: string): Promise<QuizQuestion[]> => {
@@ -15,7 +34,7 @@ export const generateQuizFromTopic = async (topic: string, role: string): Promis
   }
 
   try {
-    const model = 'gemini-3-flash-preview';
+    const model = 'gemini-2.5-flash'; // Updated to valid model as per guidelines
     const prompt = `Generate a 10-question multiple-choice quiz for a ${role} training module.
     
     Context/Transcript: 
