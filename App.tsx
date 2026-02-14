@@ -294,6 +294,23 @@ const App: React.FC = () => {
     return false;
   };
 
+  const handleDeleteUser = async (email: string) => {
+      // Prevent deleting self
+      if (session && session.email === email) {
+          alert("You cannot delete your own account.");
+          return;
+      }
+
+      const { error } = await supabase.from('users').delete().eq('email', email);
+      
+      if (!error) {
+          setUsers(users.filter(u => u.email !== email));
+      } else {
+          console.error("Error deleting user:", error);
+          alert("Failed to delete user: " + error.message);
+      }
+  };
+
   const handleAddModule = async (mod: TrainingModule) => {
       // Optimistic update
       setModules(prev => [...prev, mod]);
@@ -442,6 +459,7 @@ const App: React.FC = () => {
                     onAddModule={handleAddModule}
                     onDeleteModule={handleDeleteModule}
                     onRegisterUser={handleRegisterUser}
+                    onDeleteUser={handleDeleteUser}
                     onLogout={handleLogout}
                 />
             </main>

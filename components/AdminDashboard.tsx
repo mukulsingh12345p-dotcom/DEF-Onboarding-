@@ -14,6 +14,7 @@ interface AdminDashboardProps {
   onAddModule: (module: TrainingModule) => Promise<void>;
   onDeleteModule: (id: string) => Promise<void>;
   onRegisterUser: (user: UserProfile) => Promise<boolean>;
+  onDeleteUser: (email: string) => Promise<void>;
   onLogout: () => void;
 }
 
@@ -25,6 +26,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddModule, 
   onDeleteModule,
   onRegisterUser, 
+  onDeleteUser,
 }) => {
   const [activeTab, setActiveTab] = useState<'modules' | 'analytics' | 'users'>('analytics');
   
@@ -113,6 +115,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  user={user}
                  users={users}
                  onRegisterUser={onRegisterUser}
+                 onDeleteUser={onDeleteUser}
               />
           )}
       </div>
@@ -688,8 +691,9 @@ const AnalyticsView: React.FC<{
 const UserManagement: React.FC<{ 
     user: UserSession; // The logged-in admin
     users: UserProfile[]; // All users list
-    onRegisterUser: (user: UserProfile) => Promise<boolean> 
-}> = ({ user, users, onRegisterUser }) => {
+    onRegisterUser: (user: UserProfile) => Promise<boolean>;
+    onDeleteUser: (email: string) => Promise<void>; 
+}> = ({ user, users, onRegisterUser, onDeleteUser }) => {
     
     // Permission: Is this admin from head office?
     const isHeadOffice = user.schoolId === 'Head Office';
@@ -867,6 +871,7 @@ const UserManagement: React.FC<{
                                     <th className="p-3 text-xs font-bold text-gray-500 uppercase">Role</th>
                                     <th className="p-3 text-xs font-bold text-gray-500 uppercase">School</th>
                                     <th className="p-3 text-xs font-bold text-gray-500 uppercase">Type</th>
+                                    <th className="p-3 text-xs font-bold text-gray-500 uppercase text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
@@ -885,10 +890,23 @@ const UserManagement: React.FC<{
                                                 {u.accountType}
                                              </span>
                                         </td>
+                                        <td className="p-3 text-right">
+                                            <button 
+                                                onClick={() => {
+                                                    if(window.confirm(`Are you sure you want to delete ${u.name}?`)) {
+                                                        onDeleteUser(u.email);
+                                                    }
+                                                }}
+                                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                                title="Delete User"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </td>
                                     </tr>
                                 )) : (
                                     <tr>
-                                        <td colSpan={4} className="p-6 text-center text-gray-500 text-sm">
+                                        <td colSpan={5} className="p-6 text-center text-gray-500 text-sm">
                                             No users found for this branch.
                                         </td>
                                     </tr>
