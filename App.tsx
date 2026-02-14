@@ -5,74 +5,117 @@ import { SCHOOL_LOCATIONS, AVAILABLE_ROLES } from './constants';
 import { AdminDashboard } from './components/AdminDashboard';
 import { UserDashboard } from './components/UserDashboard';
 import { Button } from './components/Button';
-import { LogOut, GraduationCap, School, ArrowRight, ShieldCheck, UserPlus, RefreshCw, Briefcase, ArrowLeft, Info, Lock, X, Eye, EyeOff } from 'lucide-react';
+import { LogOut, GraduationCap, School, ArrowRight, ShieldCheck, UserPlus, RefreshCw, Briefcase, ArrowLeft, Info, Lock, X, Eye, EyeOff, Building2, MapPin } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 
-// --- SEED Data (Used if DB is empty) ---
-const SEED_USERS: UserProfile[] = [
-  // --- SUPER ADMIN ---
-  {
-    name: "Central HR Manager",
-    email: "hr",
-    password: "hr",
-    role: UserRole.ADMIN,
-    schoolId: "Head Office",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'ALL'
-  },
-  // --- DEPARTMENT HEADS ---
-  {
-    name: "Academic Head (Principal)",
-    email: "head_teacher",
-    password: "123",
-    role: UserRole.PRINCIPAL,
-    schoolId: "Darshan Academy, Delhi",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'TEACHER'
-  },
-  {
-    name: "Senior Accounts Officer",
-    email: "head_accounts",
-    password: "123",
-    role: UserRole.ACCOUNTANT,
-    schoolId: "Darshan Academy, Delhi",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'ACCOUNTANT'
-  },
-  {
-    name: "Chief Security Officer",
-    email: "head_security",
-    password: "123",
-    role: UserRole.SECURITY,
-    schoolId: "Darshan Academy, Delhi",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'SECURITY'
-  },
-  {
-    name: "Head of Housekeeping",
-    email: "head_cleaning",
-    password: "123",
-    role: UserRole.CLEANING_STAFF,
-    schoolId: "Darshan Academy, Delhi",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'CLEANING_STAFF'
-  },
-  {
-    name: "Administrative Officer",
-    email: "head_other",
-    password: "123",
-    role: UserRole.OTHER,
-    schoolId: "Darshan Academy, Delhi",
-    joinedAt: new Date().toISOString(),
-    accountType: 'NEW',
-    adminScope: 'OTHER'
-  }
-];
+// --- SEED HELPERS ---
+
+// Helper to get a simple city code from the full school name (e.g., "Darshan Academy, Delhi" -> "delhi")
+const getCityCode = (schoolName: string) => {
+    const parts = schoolName.split(',');
+    return parts.length > 1 ? parts[1].trim().toLowerCase().replace(/\s+/g, '_') : 'main';
+};
+
+// Generate Users for ALL Branches
+const generateSeedUsers = (): UserProfile[] => {
+    const users: UserProfile[] = [];
+
+    // 1. Central HR (Super Admin)
+    users.push({
+        name: "Central HR Manager",
+        email: "hr",
+        password: "hr",
+        role: UserRole.ADMIN,
+        schoolId: "Head Office",
+        joinedAt: new Date().toISOString(),
+        accountType: 'NEW',
+        adminScope: 'ALL'
+    });
+
+    // 2. Generate Heads for EACH School
+    SCHOOL_LOCATIONS.forEach(school => {
+        const city = getCityCode(school);
+
+        // Principal (Head of Teachers)
+        users.push({
+            name: `Principal (${city})`,
+            email: `principal_${city}`,
+            password: "123",
+            role: UserRole.PRINCIPAL,
+            schoolId: school,
+            joinedAt: new Date().toISOString(),
+            accountType: 'NEW',
+            adminScope: 'TEACHER'
+        });
+
+        // Senior Accounts Officer (Head of Accounts)
+        users.push({
+            name: `Head Accounts (${city})`,
+            email: `accounts_${city}`,
+            password: "123",
+            role: UserRole.ACCOUNTANT,
+            schoolId: school,
+            joinedAt: new Date().toISOString(),
+            accountType: 'NEW',
+            adminScope: 'ACCOUNTANT'
+        });
+
+        // Admin Officer (Head of Other Staff/Security/Cleaning)
+        users.push({
+            name: `Admin Officer (${city})`,
+            email: `admin_${city}`,
+            password: "123",
+            role: UserRole.OTHER,
+            schoolId: school,
+            joinedAt: new Date().toISOString(),
+            accountType: 'NEW',
+            adminScope: 'OTHER'
+        });
+    });
+
+    return users;
+};
+
+// Generate Standard "DEF Guidelines" Modules for ALL Roles
+const generateSeedModules = (): TrainingModule[] => {
+    const modules: TrainingModule[] = [];
+    const roles = [UserRole.TEACHER, UserRole.ACCOUNTANT, UserRole.SECURITY, UserRole.CLEANING_STAFF, UserRole.OTHER, UserRole.PRINCIPAL];
+    
+    roles.forEach(role => {
+        // Module 1: Vision & Mission
+        modules.push({
+            id: `def_vision_${role}`,
+            title: "Academy Vision & Mission",
+            description: "Understanding the core values and spiritual vision of Darshan Academy.",
+            role: role,
+            category: 'NEW',
+            folder: 'DEF Guidelines',
+            videoUrl: 'https://www.youtube.com/embed/sample_vid_1', // Placeholder
+            transcript: 'Darshan Academy provides holistic education...',
+            questions: [
+                { text: "What is the primary focus of Darshan Academy?", options: ["Holistic Education", "Sports Only", "Rote Learning", "None"], correctAnswer: 0 }
+            ]
+        });
+
+        // Module 2: Code of Conduct
+        modules.push({
+            id: `def_conduct_${role}`,
+            title: "Staff Code of Conduct",
+            description: "Professional etiquette and behavioral guidelines for all staff members.",
+            role: role,
+            category: 'NEW',
+            folder: 'DEF Guidelines',
+            videoUrl: 'https://www.youtube.com/embed/sample_vid_2', // Placeholder
+            transcript: 'Staff must maintain high standards of integrity...',
+            questions: [
+                { text: "What is expected regarding punctuality?", options: ["Flexible", "Strict adherence", "Optional", "None"], correctAnswer: 1 }
+            ]
+        });
+    });
+
+    return modules;
+};
+
 
 // --- Types for View State ---
 type AppView = 'LANDING' | 'LOGIN_NEW' | 'LOGIN_REFRESHER' | 'LOGIN_ADMIN' | 'DASHBOARD';
@@ -90,43 +133,62 @@ const App: React.FC = () => {
 
   // --- Data Fetching ---
   const fetchData = async () => {
-      // Fetch Modules
+      // 1. Fetch Modules
       const { data: mods } = await supabase.from('modules').select('*');
-      if (mods) setModules(mods.map(m => ({...m, questions: m.questions || []})));
+      let currentModules = mods ? mods.map(m => ({...m, questions: m.questions || []})) : [];
 
-      // Fetch Users
-      const { data: usrs } = await supabase.from('users').select('*');
-      if (usrs) {
-          const mappedUsers = usrs.map(u => ({
-              ...u,
-              schoolId: u.school_id,
-              joinedAt: u.joined_at,
-              accountType: u.account_type,
-              adminScope: u.admin_scope
-          }));
-          setUsers(mappedUsers);
-
-          // Auto-Seed logic if DB is empty
-          if (mappedUsers.length === 0) {
-              console.log("Seeding Database...");
-              for (const u of SEED_USERS) {
-                  await supabase.from('users').insert({
-                      email: u.email,
-                      password: u.password,
-                      name: u.name,
-                      role: u.role,
-                      school_id: u.schoolId,
-                      account_type: u.accountType,
-                      admin_scope: u.adminScope
-                  });
-              }
-              // Re-fetch (background)
-              const { data: newUsrs } = await supabase.from('users').select('*');
-              if (newUsrs) setUsers(newUsrs.map(u => ({...u, schoolId: u.school_id, joinedAt: u.joined_at, accountType: u.account_type, adminScope: u.admin_scope})));
+      // SEED MODULES if empty
+      if (currentModules.length === 0) {
+          console.log("Seeding Modules...");
+          const seedModules = generateSeedModules();
+          for (const m of seedModules) {
+              await supabase.from('modules').insert({
+                id: m.id,
+                title: m.title,
+                description: m.description,
+                role: m.role,
+                category: m.category,
+                folder: m.folder,
+                video_url: m.videoUrl,
+                transcript: m.transcript,
+                questions: m.questions
+              });
           }
+          currentModules = seedModules;
       }
+      setModules(currentModules);
 
-      // Fetch Progress
+      // 2. Fetch Users
+      const { data: usrs } = await supabase.from('users').select('*');
+      let currentUsers = usrs ? usrs.map(u => ({
+          ...u,
+          schoolId: u.school_id,
+          joinedAt: u.joined_at,
+          accountType: u.account_type,
+          adminScope: u.admin_scope
+      })) : [];
+
+      // SEED USERS if empty
+      if (currentUsers.length === 0) {
+          console.log("Seeding Users...");
+          const seedUsers = generateSeedUsers();
+          // Insert in chunks to be safe, though simple loop is fine for < 100
+          for (const u of seedUsers) {
+              await supabase.from('users').insert({
+                  email: u.email,
+                  password: u.password,
+                  name: u.name,
+                  role: u.role,
+                  school_id: u.schoolId,
+                  account_type: u.accountType,
+                  admin_scope: u.adminScope
+              });
+          }
+          currentUsers = seedUsers;
+      }
+      setUsers(currentUsers);
+
+      // 3. Fetch Progress
       const { data: prog } = await supabase.from('progress').select('*');
       if (prog) {
           setProgress(prog.map(p => ({
@@ -177,7 +239,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAdminLogin = async (id: string, pass: string) => {
+  const handleAdminLogin = async (id: string, pass: string, selectedSchool: string) => {
       // Query DB directly
       const { data, error } = await supabase
         .from('users')
@@ -188,6 +250,12 @@ const App: React.FC = () => {
       const user = data?.[0];
 
       if (user && (user.role === UserRole.ADMIN || user.admin_scope)) {
+          // Security Check: Ensure Admin belongs to the selected school (or is Head Office)
+          if (user.school_id !== 'Head Office' && user.school_id !== selectedSchool) {
+             alert(`Access Denied: You are not authorized for ${selectedSchool}. Please select your assigned branch.`);
+             return;
+          }
+
           setSession({
             email: user.email,
             name: user.name,
@@ -310,9 +378,6 @@ const App: React.FC = () => {
 
   // --- Views ---
 
-  // NOTE: Blocking loading screen removed to allow instant app start.
-  // Data fetches in background. Login checks DB directly.
-
   if (currentView === 'LANDING') {
       return <LandingPage onNavigate={setCurrentView} />;
   }
@@ -353,7 +418,7 @@ const App: React.FC = () => {
                         <div>
                             <h1 className="font-bold text-lg text-white leading-none">Darshan Academy</h1>
                             <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                                {session.adminScope === 'ALL' ? 'HR / Super Admin' : 'Department Head Portal'}
+                                {session.schoolId} &bull; {session.adminScope === 'ALL' ? 'HR / Super Admin' : 'Department Head'}
                             </p>
                         </div>
                     </div>
@@ -629,14 +694,68 @@ const StaffLoginPage: React.FC<StaffLoginProps> = ({ type, onLogin, onBack }) =>
 
 // --- Admin Login Page ---
 
-const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack: () => void, users: UserProfile[] }> = ({ onLogin, onBack, users }) => {
+const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string, s: string) => void, onBack: () => void, users: UserProfile[] }> = ({ onLogin, onBack, users }) => {
     const [id, setId] = useState('');
     const [pass, setPass] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [selectedSchool, setSelectedSchool] = useState<string | null>(null);
 
     // Filter relevant "HEAD" accounts
-    const heads = users.filter(u => u.adminScope && u.adminScope !== 'ALL');
+    // Only show heads that match the selected school (or Head Office if that was selectable, but usually we filter for the branch)
+    // The Central HR is at "Head Office"
     const hr = users.find(u => u.adminScope === 'ALL');
+    
+    // Admins for the SPECIFIC school selected
+    const branchHeads = users.filter(u => 
+        u.adminScope && 
+        u.adminScope !== 'ALL' && 
+        (u.schoolId === selectedSchool)
+    );
+
+    // If "Head Office" is not in the list of SCHOOL_LOCATIONS, we might want to let the HR login via any portal or handle it separately.
+    // For simplicity, we'll assume HR can login to any branch portal as a super admin.
+
+    if (!selectedSchool) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+                <div className="max-w-4xl w-full">
+                    <div className="flex items-center justify-between mb-8">
+                        <div>
+                             <h2 className="text-3xl font-bold text-white mb-2">Select Administrative Branch</h2>
+                             <p className="text-slate-400">Please select the school location you wish to manage.</p>
+                        </div>
+                        <Button variant="ghost" onClick={onBack} className="text-slate-400 hover:text-white">
+                            <ArrowLeft className="w-4 h-4 mr-2" /> Back
+                        </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto pr-2">
+                        {/* Add Head Office option explicitly if not in list */}
+                        <button
+                            onClick={() => setSelectedSchool('Head Office')}
+                            className="bg-purple-900/50 hover:bg-purple-900 border border-purple-700 p-6 rounded-xl text-left transition-all hover:-translate-y-1 group"
+                        >
+                            <Building2 className="w-8 h-8 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
+                            <h3 className="font-bold text-white text-lg">Head Office</h3>
+                            <p className="text-sm text-purple-300">Central Administration</p>
+                        </button>
+
+                        {SCHOOL_LOCATIONS.map((school) => (
+                            <button
+                                key={school}
+                                onClick={() => setSelectedSchool(school)}
+                                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-6 rounded-xl text-left transition-all hover:-translate-y-1 group"
+                            >
+                                <MapPin className="w-8 h-8 text-blue-500 mb-4 group-hover:scale-110 transition-transform" />
+                                <h3 className="font-bold text-white text-sm md:text-base leading-tight">{school}</h3>
+                                <p className="text-xs text-slate-500 mt-2">Branch Portal</p>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -644,15 +763,18 @@ const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack
                 {/* Login Form */}
                 <div className="bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 h-fit">
                     <div className="p-6 border-b border-slate-700 flex items-center gap-4">
-                        <Button variant="ghost" size="sm" onClick={onBack} className="text-slate-400 hover:text-white">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedSchool(null)} className="text-slate-400 hover:text-white">
                             <ArrowLeft className="w-4 h-4" />
                         </Button>
-                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                            <ShieldCheck className="w-5 h-5 text-blue-400" /> Admin Access
-                        </h2>
+                        <div>
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <ShieldCheck className="w-5 h-5 text-blue-400" /> Admin Access
+                            </h2>
+                            <p className="text-xs text-blue-400 mt-0.5">{selectedSchool}</p>
+                        </div>
                     </div>
                     <div className="p-8">
-                        <form onSubmit={(e) => { e.preventDefault(); onLogin(id, pass); }} className="space-y-4">
+                        <form onSubmit={(e) => { e.preventDefault(); onLogin(id, pass, selectedSchool); }} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Admin ID / Email</label>
                                 <input required type="text" className="w-full bg-slate-900 border border-slate-600 rounded-md p-3 text-white placeholder-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={id} onChange={e => setId(e.target.value)} placeholder="Enter Admin ID" />
@@ -678,7 +800,7 @@ const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack
                                 </div>
                             </div>
                             <Button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-500 border-none text-white font-bold">
-                                Login
+                                Login to {selectedSchool === 'Head Office' ? 'HQ' : 'Branch'}
                             </Button>
                         </form>
                     </div>
@@ -688,7 +810,7 @@ const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack
                 <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 text-slate-300">
                     <div className="flex items-center gap-2 mb-6 text-blue-400">
                         <Info className="w-5 h-5" />
-                        <h3 className="font-bold">Profession Head Credentials</h3>
+                        <h3 className="font-bold">Available Credentials</h3>
                     </div>
                     
                     <div className="space-y-3">
@@ -702,12 +824,15 @@ const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack
                                     <span>ID: <span className="font-bold">{hr.email}</span></span>
                                     <span>Pass: <span className="font-bold">{hr.password}</span></span>
                                 </div>
+                                <p className="text-[10px] text-purple-300 mt-2">Can access ANY branch.</p>
                             </div>
                         )}
 
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Department Heads</p>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                             {selectedSchool === 'Head Office' ? 'No Branch Heads in HQ' : `Heads: ${selectedSchool}`}
+                        </p>
                         
-                        {heads.map((u, idx) => (
+                        {branchHeads.length > 0 ? branchHeads.slice(0, 3).map((u, idx) => (
                             <div key={idx} className="bg-slate-800 p-4 rounded-lg border border-slate-700 text-sm flex justify-between items-center hover:bg-slate-700/50 transition-colors">
                                 <div>
                                     <p className="font-bold text-white text-xs mb-1.5">{u.name}</p>
@@ -721,12 +846,19 @@ const AdminLoginPage: React.FC<{ onLogin: (i: string, p: string) => void, onBack
                                      <p className="font-mono text-blue-200 text-sm">{u.email} <span className="text-slate-500 mx-1">/</span> {u.password}</p>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                             selectedSchool !== 'Head Office' && (
+                                <div className="p-4 text-center text-slate-500 text-sm border border-slate-700 border-dashed rounded-lg">
+                                    No Admin accounts found for this branch in demo data.
+                                    <br/><span className="text-xs">Use HR account to create one.</span>
+                                </div>
+                             )
+                        )}
+                        {branchHeads.length > 3 && (
+                            <p className="text-center text-xs text-slate-500 italic mt-2">+ {branchHeads.length - 3} more heads...</p>
+                        )}
                         
                     </div>
-                     <p className="text-xs text-slate-500 italic mt-6 border-t border-slate-700 pt-4 text-center">
-                            Use these "Head" accounts to test department-specific views (e.g., Head of Accounts only sees accountants).
-                     </p>
                 </div>
             </div>
         </div>

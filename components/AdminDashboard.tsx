@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { UserRole, TrainingModule, UserProfile, UserProgress, UserSession } from '../types';
 import { AVAILABLE_ROLES, SCHOOL_LOCATIONS } from '../constants';
 import { generateQuizFromTopic } from '../services/geminiService';
 import { Button } from './Button';
-import { Plus, Trash2, Wand2, BookOpen, Users, BarChart3, Search, UserPlus, Key, Lock, FolderPlus, Folder, AlertTriangle, FolderOpen, ArrowLeft, Layers, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Wand2, BookOpen, Users, BarChart3, Search, UserPlus, Key, Lock, FolderPlus, Folder, AlertTriangle, FolderOpen, ArrowLeft, Layers, Eye, EyeOff, Building2, Filter } from 'lucide-react';
 
 interface AdminDashboardProps {
   user: UserSession;
@@ -27,16 +27,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRegisterUser, 
 }) => {
   const [activeTab, setActiveTab] = useState<'modules' | 'analytics' | 'users'>('analytics');
-  const [searchTerm, setSearchTerm] = useState('');
-
+  
   // Scope Logic
-  const isHR = user.adminScope === 'ALL';
-  const roleScope = (!isHR && user.adminScope) ? (user.adminScope as UserRole) : null;
+  // HR/Super Admin (Head Office) sees all. Branch admins see their own branch.
+  const isHeadOffice = user.schoolId === 'Head Office' || user.adminScope === 'ALL';
+  const roleScope = (!isHeadOffice && user.adminScope) ? (user.adminScope as UserRole) : null;
 
   const tabs = [
-    { id: 'analytics', label: 'Progress Analytics', icon: BarChart3 },
+    { id: 'analytics', label: 'Staff Progress & Reports', icon: BarChart3 },
     { id: 'modules', label: 'Curriculum & Modules', icon: BookOpen },
-    ...(isHR ? [{ id: 'users', label: 'ID Creation (HR)', icon: Users }] : [])
+    { id: 'users', label: 'Staff Credentials', icon: Users } 
   ];
 
   // Helper to delete all modules in a folder
@@ -54,13 +54,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Navigation */}
-      <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 w-fit shadow-sm">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 w-full sm:w-fit shadow-sm overflow-x-auto">
               {tabs.map(tab => (
                   <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id as any)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all whitespace-nowrap
                           ${activeTab === tab.id 
                               ? 'bg-slate-800 text-white shadow' 
                               : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}
@@ -72,12 +72,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ))}
           </div>
           
-          {roleScope && (
-              <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded text-xs font-bold border border-blue-100 flex items-center gap-2">
-                  <Lock className="w-3 h-3" />
-                  Viewing: {roleScope} Department
-              </div>
-          )}
+          <div className="flex gap-2">
+            {roleScope && (
+                <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded text-xs font-bold border border-blue-100 flex items-center gap-2">
+                    <Lock className="w-3 h-3" />
+                    Dept: {roleScope}
+                </div>
+            )}
+             <div className="bg-slate-100 text-slate-700 px-3 py-1 rounded text-xs font-bold border border-slate-200 flex items-center gap-2">
+                <Building2 className="w-3 h-3" />
+                {user.schoolId === 'Head Office' ? 'HQ Access' : user.schoolId}
+            </div>
+          </div>
       </div>
 
       <div>
@@ -97,14 +103,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 users={users} 
                 progress={progress} 
                 modules={modules} 
-                searchTerm={searchTerm} 
-                onSearchChange={setSearchTerm} 
-                roleFilter={roleScope}
+                isHeadOffice={isHeadOffice}
+                adminSchoolId={user.schoolId} 
             />
           )}
 
-          {activeTab === 'users' && isHR && (
+          {activeTab === 'users' && (
               <UserManagement 
+                 user={user}
                  users={users}
                  onRegisterUser={onRegisterUser}
               />
@@ -124,12 +130,16 @@ const ModulesManager: React.FC<{
     onDeleteFolder: (folderName: string, role?: UserRole) => void;
     forcedRole: UserRole | null;
 }> = ({ user, modules, onAddModule, onDeleteModule, onDeleteFolder, forcedRole }) => {
+    const isHeadOffice = user.schoolId === 'Head Office' || user.adminScope === 'ALL';
+
     const [isAdding, setIsAdding] = useState(false);
     const [loading, setLoading] = useState(false);
     const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     
-    const isHR = user.adminScope === 'ALL';
+    // View Filters
+    const [viewBranch, setViewBranch] = useState(SCHOOL_LOCATIONS[0]); // Default to first branch for HQ view simulation
+    const [viewRole, setViewRole] = useState<UserRole>(forcedRole || UserRole.TEACHER);
 
     // Folder Logic for Add Form
     const [folderMode, setFolderMode] = useState<'EXISTING' | 'NEW'>('EXISTING');
@@ -138,13 +148,21 @@ const ModulesManager: React.FC<{
     const [newModule, setNewModule] = useState<Partial<TrainingModule>>({
         title: '',
         description: 'Standard Training Module',
-        role: forcedRole || UserRole.TEACHER,
+        role: viewRole, // Default to currently viewed role
         category: 'NEW',
         folder: selectedFolder || 'DEF Guidelines',
         videoUrl: '',
         transcript: '',
         questions: []
     });
+
+    // Update new module role when view role changes
+    useMemo(() => {
+        if (!isAdding) {
+            setNewModule(prev => ({ ...prev, role: viewRole }));
+        }
+    }, [viewRole, isAdding]);
+
 
     // Folders available for the dropdown in "Add Module"
     const currentRoleFolders: string[] = Array.from(new Set(
@@ -154,10 +172,10 @@ const ModulesManager: React.FC<{
     ));
     if (!currentRoleFolders.includes('DEF Guidelines')) currentRoleFolders.unshift('DEF Guidelines');
 
-    // Filter modules based on scope
-    const filteredModules = forcedRole ? modules.filter(m => m.role === forcedRole) : modules;
+    // Filter modules based on Hierarchy: Profession -> Folder
+    const filteredModules = modules.filter(m => m.role === viewRole);
 
-    // Get unique folders for display
+    // Get unique folders for display based on the selected Profession
     const uniqueFolders = Array.from(new Set(filteredModules.map(m => m.folder || 'DEF Guidelines'))).sort();
 
     const handleGenerateQuiz = async () => {
@@ -189,14 +207,14 @@ const ModulesManager: React.FC<{
                     folder: finalFolder,
                     description: newModule.description || ' '
                 });
-                // If we get here, it (likely) succeeded or handled its own error
+                // Reset
                 setIsAdding(false);
                 setCustomFolderName('');
                 setFolderMode('EXISTING');
                 setNewModule({ 
                     title: '', 
                     description: 'Standard Training Module', 
-                    role: forcedRole || UserRole.TEACHER, 
+                    role: viewRole, 
                     category: 'NEW', 
                     folder: selectedFolder || 'DEF Guidelines',
                     videoUrl: '', 
@@ -215,8 +233,12 @@ const ModulesManager: React.FC<{
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-gray-800">Curriculum Management</h2>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                     <h2 className="text-xl font-bold text-gray-800">Curriculum Management</h2>
+                     <p className="text-xs text-gray-500">Manage modules for specific professions.</p>
+                </div>
+                
                 <div className="flex gap-2">
                     <Button onClick={() => {
                         setIsAdding(!isAdding);
@@ -227,6 +249,43 @@ const ModulesManager: React.FC<{
                         {isAdding ? 'Cancel' : 'Add New Module'}
                     </Button>
                 </div>
+            </div>
+
+            {/* HIERARCHY FILTERS: Branch (HQ Only) -> Profession */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4 items-center">
+                 <div className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                    <Filter className="w-4 h-4" />
+                    Filters:
+                 </div>
+
+                 {isHeadOffice && (
+                     <div className="w-full md:w-auto">
+                        <select 
+                            value={viewBranch}
+                            onChange={(e) => setViewBranch(e.target.value)}
+                            className="w-full md:w-64 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
+                        >
+                            {SCHOOL_LOCATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1 ml-1">Viewing curriculum for: {viewBranch}</p>
+                     </div>
+                 )}
+
+                 <div className="w-full md:w-auto">
+                    <select 
+                        value={viewRole}
+                        onChange={(e) => {
+                            setViewRole(e.target.value as UserRole);
+                            setSelectedFolder(null); // Reset folder selection when role changes
+                        }}
+                        disabled={!!forcedRole}
+                        className="w-full md:w-64 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none font-medium"
+                    >
+                        {AVAILABLE_ROLES.filter(r => r.value !== UserRole.ADMIN).map(r => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                        ))}
+                    </select>
+                 </div>
             </div>
 
             {isAdding && (
@@ -330,7 +389,7 @@ const ModulesManager: React.FC<{
             {!selectedFolder ? (
                 // --- FOLDER VIEW ---
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {uniqueFolders.map(folderName => {
+                    {uniqueFolders.length > 0 ? uniqueFolders.map(folderName => {
                         const folderModules = filteredModules.filter(m => (m.folder || 'DEF Guidelines') === folderName);
                         return (
                             <div key={folderName} className="group bg-white p-5 rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer relative" onClick={() => setSelectedFolder(folderName)}>
@@ -338,11 +397,11 @@ const ModulesManager: React.FC<{
                                     <div className="bg-blue-50 text-blue-600 p-3 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors">
                                         {folderName === 'DEF Guidelines' ? <Layers className="w-6 h-6" /> : <Folder className="w-6 h-6" />}
                                     </div>
-                                    {isHR && (
+                                    {isHeadOffice && (
                                         <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onDeleteFolder(folderName, forcedRole || undefined);
+                                                onDeleteFolder(folderName, viewRole || undefined);
                                             }}
                                             className="text-gray-300 hover:text-red-500 p-1.5 hover:bg-red-50 rounded transition-colors"
                                             title="Delete Folder"
@@ -355,7 +414,13 @@ const ModulesManager: React.FC<{
                                 <p className="text-sm text-gray-500">{folderModules.length} Modules</p>
                             </div>
                         );
-                    })}
+                    }) : (
+                        <div className="col-span-full p-12 text-center bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-500">
+                            <FolderOpen className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                            <p>No folders found for <strong>{viewRole}</strong>.</p>
+                            <p className="text-xs">Click "Add New Module" to create one.</p>
+                        </div>
+                    )}
                 </div>
             ) : (
                 // --- MODULE LIST VIEW ---
@@ -378,58 +443,26 @@ const ModulesManager: React.FC<{
                         </span>
                     </div>
                     
-                    <div className="p-0">
-                        {/* Specific Logic for DEF Guidelines: Group by Profession */}
-                        {selectedFolder === 'DEF Guidelines' ? (
-                            <div className="divide-y divide-gray-100">
-                                {Array.from(new Set(filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder).map(m => m.role))).map(role => (
-                                    <div key={role} className="p-4">
-                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                            <Users className="w-3 h-3" />
-                                            {role}
-                                        </h4>
-                                        <div className="space-y-2 pl-2 border-l-2 border-gray-100">
-                                            {filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder && m.role === role).map(m => (
-                                                 <div key={m.id} className="flex justify-between items-center group p-2 rounded hover:bg-gray-50">
-                                                    <div>
-                                                        <h5 className="font-bold text-sm text-gray-900">{m.title}</h5>
-                                                        <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-bold">{m.questions.length} Qs</span>
-                                                    </div>
-                                                    {isHR && (
-                                                        <button onClick={() => onDeleteModule(m.id)} className="text-gray-400 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete Module">
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
+                    <div className="divide-y divide-gray-100">
+                        {filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder).map(m => (
+                            <div key={m.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${m.role === UserRole.TEACHER ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                                            {m.role}
+                                        </span>
                                     </div>
-                                ))}
-                            </div>
-                        ) : (
-                            /* Generic Folder View - Just List */
-                            <div className="divide-y divide-gray-100">
-                                {filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder).map(m => (
-                                    <div key={m.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${m.role === UserRole.TEACHER ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                    {m.role}
-                                                </span>
-                                            </div>
-                                            <h4 className="font-medium text-gray-900">{m.title}</h4>
-                                        </div>
-                                        {isHR && (
-                                            <button onClick={() => onDeleteModule(m.id)} className="text-gray-400 hover:text-red-500 p-2" title="Delete Module">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                                {filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder).length === 0 && (
-                                    <div className="p-8 text-center text-gray-400 text-sm">Folder is empty.</div>
+                                    <h4 className="font-medium text-gray-900">{m.title}</h4>
+                                </div>
+                                {isHeadOffice && (
+                                    <button onClick={() => onDeleteModule(m.id)} className="text-gray-400 hover:text-red-500 p-2" title="Delete Module">
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
                                 )}
                             </div>
+                        ))}
+                        {filteredModules.filter(m => (m.folder || 'DEF Guidelines') === selectedFolder).length === 0 && (
+                            <div className="p-8 text-center text-gray-400 text-sm">Folder is empty.</div>
                         )}
                     </div>
                 </div>
@@ -442,15 +475,34 @@ const AnalyticsView: React.FC<{
     users: UserProfile[];
     progress: UserProgress[];
     modules: TrainingModule[];
-    searchTerm: string;
-    onSearchChange: (s: string) => void;
-    roleFilter: UserRole | null;
-}> = ({ users, progress, modules, searchTerm, onSearchChange, roleFilter }) => {
+    isHeadOffice: boolean;
+    adminSchoolId: string;
+}> = ({ users, progress, modules, isHeadOffice, adminSchoolId }) => {
+    
+    // States for Filters
+    const [branchFilter, setBranchFilter] = useState<string>(isHeadOffice ? 'All Branches' : adminSchoolId);
+    const [roleFilter, setRoleFilter] = useState<string>('All Roles');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // FILTERING LOGIC: Branch -> Role -> Search
     const filteredUsers = users.filter(u => {
-        const roleMatch = roleFilter ? u.role === roleFilter : true;
+        // 1. Branch Filter
+        // If Admin is Head Office: Check dropdown value. If 'All Branches', allow all.
+        // If Admin is Branch HR: Must match adminSchoolId.
+        const branchMatch = isHeadOffice 
+            ? (branchFilter === 'All Branches' || u.schoolId === branchFilter)
+            : u.schoolId === adminSchoolId;
+
+        // 2. Role Filter
+        const roleMatch = roleFilter === 'All Roles' || u.role === roleFilter;
+
+        // 3. Search
         const searchMatch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || u.email.includes(searchTerm);
+        
+        // 4. Exclude Admins from progress report
         const notAdmin = u.role !== UserRole.ADMIN;
-        return roleMatch && searchMatch && notAdmin;
+
+        return branchMatch && roleMatch && searchMatch && notAdmin;
     });
 
     const getProgressStats = (userEmail: string, role: UserRole) => {
@@ -458,7 +510,6 @@ const AnalyticsView: React.FC<{
         if (userModules.length === 0) return { percent: 0, label: 'No Modules' };
 
         const passedCount = userModules.filter(m => {
-            // Updated to use userEmail (Link via Email/ID)
             const p = progress.find(prog => prog.userId === userEmail && prog.moduleId === m.id);
             return p?.passed;
         }).length;
@@ -471,22 +522,61 @@ const AnalyticsView: React.FC<{
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <h2 className="text-xl font-bold text-gray-900">Staff Progress & Performance</h2>
-                <div className="relative">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                    <input 
-                        type="text" 
-                        placeholder="Search staff..." 
-                        className="pl-9 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                        value={searchTerm}
-                        onChange={e => onSearchChange(e.target.value)}
-                    />
-                </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <table className="w-full text-left border-collapse">
+            {/* HIERARCHICAL FILTERS */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4">
+                 {/* 1. Branch Filter (Only for Head Office) */}
+                 {isHeadOffice && (
+                     <div className="w-full md:w-auto">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">1. Select Branch</label>
+                        <select 
+                            value={branchFilter}
+                            onChange={(e) => setBranchFilter(e.target.value)}
+                            className="w-full md:w-56 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
+                        >
+                            <option value="All Branches">All Branches</option>
+                            {SCHOOL_LOCATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                     </div>
+                 )}
+
+                 {/* 2. Profession Filter */}
+                 <div className="w-full md:w-auto">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">2. Select Profession</label>
+                    <select 
+                        value={roleFilter}
+                        onChange={(e) => setRoleFilter(e.target.value)}
+                        className="w-full md:w-56 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
+                    >
+                        <option value="All Roles">All Roles</option>
+                        {AVAILABLE_ROLES.filter(r => r.value !== UserRole.ADMIN).map(r => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                        ))}
+                    </select>
+                 </div>
+
+                 {/* 3. Search */}
+                 <div className="w-full md:flex-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">3. Search Staff</label>
+                    <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <input 
+                            type="text" 
+                            placeholder="Name or Email ID..." 
+                            className="pl-9 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none w-full"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                 </div>
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
                             <th className="p-4 text-xs font-bold text-gray-500 uppercase">Staff Name</th>
@@ -498,7 +588,6 @@ const AnalyticsView: React.FC<{
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {filteredUsers.length > 0 ? filteredUsers.map(user => {
-                            // Link using user.email
                             const stats = getProgressStats(user.email, user.role);
                             return (
                                 <tr key={user.email} className="hover:bg-gray-50 transition-colors">
@@ -545,17 +634,73 @@ const AnalyticsView: React.FC<{
                     </tbody>
                 </table>
             </div>
+
+            {/* Mobile Card View (Visible only on small screens) */}
+            <div className="md:hidden space-y-4">
+                {filteredUsers.length > 0 ? filteredUsers.map(user => {
+                    const stats = getProgressStats(user.email, user.role);
+                    return (
+                        <div key={user.email} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h3 className="font-bold text-gray-900 text-sm">{user.name}</h3>
+                                    <p className="text-xs text-gray-500">{user.email}</p>
+                                </div>
+                                <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                                    {user.role}
+                                </span>
+                            </div>
+                            
+                            <div className="text-xs text-gray-600 mb-3 flex items-center gap-1">
+                                <span className="font-semibold text-gray-400">Branch:</span> {user.schoolId}
+                            </div>
+
+                            <div className="bg-gray-50 rounded p-2 mb-2">
+                                <div className="flex justify-between items-center text-xs mb-1">
+                                    <span className="font-bold text-gray-700">Progress</span>
+                                    <span className="font-bold text-blue-600">{stats.percent}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden mb-1">
+                                    <div 
+                                        className={`h-full ${stats.percent === 100 ? 'bg-green-500' : 'bg-blue-500'}`} 
+                                        style={{ width: `${stats.percent}%` }}
+                                    />
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-gray-400">{stats.label}</span>
+                                    {stats.percent === 100 ? (
+                                        <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 rounded">Certified</span>
+                                    ) : (
+                                        <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 rounded">In Progress</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }) : (
+                    <div className="text-center text-gray-500 py-8 bg-white rounded-lg border border-dashed text-sm">No staff found matching filters.</div>
+                )}
+            </div>
         </div>
     );
 };
 
-const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: UserProfile) => Promise<boolean> }> = ({ users, onRegisterUser }) => {
+const UserManagement: React.FC<{ 
+    user: UserSession; // The logged-in admin
+    users: UserProfile[]; // All users list
+    onRegisterUser: (user: UserProfile) => Promise<boolean> 
+}> = ({ user, users, onRegisterUser }) => {
+    
+    // Permission: Is this admin from head office?
+    const isHeadOffice = user.schoolId === 'Head Office';
+
     const [formData, setFormData] = useState({
         name: '', 
         email: '', 
         password: '', 
         role: AVAILABLE_ROLES[0].value, 
-        school: SCHOOL_LOCATIONS[0],
+        // If not Head Office, lock to their school. If Head Office, default to first school.
+        school: isHeadOffice ? SCHOOL_LOCATIONS[0] : user.schoolId,
         accountType: 'NEW' as 'NEW' | 'REFRESHER'
     });
     const [msg, setMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -573,7 +718,7 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                 email: formData.email,
                 password: formData.password,
                 role: formData.role as UserRole,
-                schoolId: formData.school,
+                schoolId: formData.school, // Uses the state, which is locked if not Head Office
                 joinedAt: new Date().toISOString(),
                 accountType: formData.accountType
             });
@@ -581,20 +726,27 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
 
             if (success) {
                 setMsg({ type: 'success', text: 'User account created successfully in Database.' });
-                setFormData({ ...formData, name: '', email: '', password: '' });
+                setFormData({ 
+                    ...formData, 
+                    name: '', 
+                    email: '', 
+                    password: '' 
+                    // Do not reset School if locked
+                });
             } else {
                 setMsg({ type: 'error', text: 'Login ID already registered.' });
             }
         }
     };
-    // ... (rest of component matches existing structure, omitting render block which is identical except for handleSubmit)
     
-    // Minimal re-render for brevity - mostly identical to before
-    const filteredUsers = users.filter(u => 
-        u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.schoolId.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Filter User List for Display
+    const filteredUsers = users.filter(u => {
+        const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                              u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              u.schoolId.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesScope = isHeadOffice ? true : u.schoolId === user.schoolId;
+        return matchesSearch && matchesScope;
+    });
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -606,7 +758,9 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-gray-900">Create Staff Credentials</h2>
-                            <p className="text-xs text-gray-500">Only HR can add new users.</p>
+                            <p className="text-xs text-gray-500">
+                                {isHeadOffice ? 'Adding for Any Branch' : `Adding for ${user.schoolId}`}
+                            </p>
                         </div>
                     </div>
 
@@ -648,9 +802,18 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                         </div>
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Branch</label>
-                            <select className="w-full bg-white text-gray-900 border border-gray-300 rounded-md p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={formData.school} onChange={e => setFormData({...formData, school: e.target.value})}>
-                                {SCHOOL_LOCATIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                            {isHeadOffice ? (
+                                <select className="w-full bg-white text-gray-900 border border-gray-300 rounded-md p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={formData.school} onChange={e => setFormData({...formData, school: e.target.value})}>
+                                    {SCHOOL_LOCATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            ) : (
+                                <input 
+                                    type="text" 
+                                    disabled 
+                                    value={formData.school} 
+                                    className="w-full bg-gray-100 text-gray-600 border border-gray-300 rounded-md p-2 text-sm cursor-not-allowed"
+                                />
+                            )}
                         </div>
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Password</label>
@@ -683,21 +846,21 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                     <div className="p-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 bg-gray-50">
                         <h3 className="font-bold text-gray-900 flex items-center gap-2">
                             <Key className="w-4 h-4 text-gray-500" />
-                            Registered Accounts
+                            {isHeadOffice ? 'All Registered Accounts' : `Accounts at ${user.schoolId}`}
                         </h3>
-                        <div className="relative">
+                        <div className="relative w-full md:w-auto">
                             <Search className="w-3 h-3 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                             <input 
                                 type="text" 
                                 placeholder="Search users..." 
-                                className="pl-8 pr-3 py-1.5 bg-white border border-gray-300 rounded-md text-xs text-gray-900 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                                className="pl-8 pr-3 py-1.5 bg-white border border-gray-300 rounded-md text-xs text-gray-900 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 outline-none w-full"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
                     </div>
-                    <div className="max-h-[600px] overflow-y-auto">
-                        <table className="w-full text-left border-collapse">
+                    <div className="max-h-[600px] overflow-y-auto overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead className="bg-gray-50 sticky top-0">
                                 <tr>
                                     <th className="p-3 text-xs font-bold text-gray-500 uppercase">Name / ID</th>
@@ -707,7 +870,7 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredUsers.map((u, i) => (
+                                {filteredUsers.length > 0 ? filteredUsers.map((u, i) => (
                                     <tr key={i} className="hover:bg-gray-50 text-sm">
                                         <td className="p-3">
                                             <div className="font-bold text-gray-900">{u.name}</div>
@@ -723,7 +886,13 @@ const UserManagement: React.FC<{ users: UserProfile[], onRegisterUser: (user: Us
                                              </span>
                                         </td>
                                     </tr>
-                                ))}
+                                )) : (
+                                    <tr>
+                                        <td colSpan={4} className="p-6 text-center text-gray-500 text-sm">
+                                            No users found for this branch.
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
